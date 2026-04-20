@@ -26,21 +26,32 @@ ament_export_dependencies(rosidl_default_runtime)
 add_executable(target_interface "src/ui_node.cpp")
 # add_executable(controller "src/controller.cpp")
 
-ament_target_dependencies(target_interface rclcpp rclcpp_action tf2 tf2_ros geometry_msgs)
-# ament_target_dependencies(controller rclcpp rclcpp_action tf2 tf2_ros geometry_msgs rclcpp_components)
-
 ##COMPONENTS
 add_library(controller_component SHARED src/controller.cpp)
 rclcpp_components_register_node(controller_component
-  PLUGIN "assignment1_rt2::Controller"
+  PLUGIN "target_controller::TargetController"
   EXECUTABLE controller)
 
-rosidl_target_interfaces(
-  target_interface 
-  ${PROJECT_NAME} "rosidl_typesupport_cpp"
-)
+# dependencies for executables / componentes
+ament_target_dependencies(target_interface rclcpp rclcpp_action tf2 tf2_ros geometry_msgs)
+# ament_target_dependencies(controller rclcpp rclcpp_action tf2 tf2_ros geometry_msgs rclcpp_components)
+ament_target_dependencies(controller_component rclcpp rclcpp_action tf2 tf2_ros geometry_msgs rclcpp_components)
 
 
+## interfaces DEPRECATED
+# rosidl_target_interfaces(
+#   target_interface 
+#   ${PROJECT_NAME} "rosidl_typesupport_cpp"
+# )
+# rosidl_target_interfaces(
+#   controller_component 
+#   ${PROJECT_NAME} "rosidl_typesupport_cpp"
+# )
+
+#interfaces 
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
+target_link_libraries(target_interface "${cpp_typesupport_target}")
+target_link_libraries(controller_component "${cpp_typesupport_target}")
 
 
 #install
