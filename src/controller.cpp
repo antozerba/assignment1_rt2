@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <thread>
+#include <climits>
 
 
 #include "assignment1_rt2/action/target.hpp"
@@ -39,6 +40,7 @@ class TargetController : public rclcpp::Node{
 
         //VelPub
         vel_pub = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+
 
 
 
@@ -84,12 +86,68 @@ class TargetController : public rclcpp::Node{
         auto feedback = std::make_shared<Target::Feedback>();
         auto result = std::make_shared<Target::Result>();
 
+        geometry_msgs::msg::TransformStamped t;
 
-        //implementation of action logic
+        //implementation of action logic:
+        float distance = LONG_MAX;
+        float angle = -1.0;
+        while(rclcpp::ok() && distance > 0.1){
+            //getting trasf of robot-target
+            try{
+                t  = tf_buffer->lookupTransform("base_link", "target", tf2::TimePointZero);
+            }catch (const tf2::TransformException & ex){
+                RCLCPP_ERROR(this->get_logger(), "Could not transform: %s", ex.what());
+                goal_handle->abort(result);
+                return;
+            }
+
+
+            //compute controller based on the distance
+            distance = static_cast<float>(sqrt(pow(t.transform.translation.x, 2) + pow(t.transform.translation.y, 2)));
+            angle = atan2(t.transform.translation.y, t.transform.translation.x); 
+
+            //send feedback
+            feedback->partial_pose = {static_cast<float>(t.transform.translation.x), static_cast<float>(t.transform.translation.y), angle};
+            goal_handle->publish_feedback(feedback);
+        
+            geometry_msgs::msg::Twist cmd_vel;
+            cmd_vel.linear.x = 0.5 * distance;
+            cmd_vel.angular.z = 1.0 * angle;
+
+            vel_pub->publish(cmd_vel);
+
+        }
+        if(rclcpp::ok())
+        {
+            //stopping the robot
+            geometry_msgs::msg::Twist cmd_vel;
+            cmd_vel.linear.x = 0.0;
+            cmd_vel.angular.z = 0.0;
+            vel_pub->publish(cmd_vel);
+
+            //setting result
+            result->final_pose = {static_cast<float>(t.transform.translation.x), static_cast<float>(t.transform.translation.y), angle};
+            goal_handle->succeed(result);
+        }
+
+
+
+
+
+
+
+
     }
 
 
 
 };
+}
+int main(int argc, char* argv[]){
+    rclcpp::init(argc, argv);
+    auto node = std::make_shared<target_controller::TargetController>();
+    rclcpp::spin(node);
+    rclcpp::shutdown();
+    return 0;
 }
 RCLCPP_COMPONENTS_REGISTER_NODE(target_controller::TargetController)
