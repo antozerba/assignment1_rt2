@@ -20,21 +20,26 @@ class TargetInterface  : public rclcpp::Node{
         //broadcaster
         target_broadcaster =  std::make_shared<tf2_ros::StaticTransformBroadcaster>(this);
 
-        //publish targret pos
-        this->get_input();
-        this->make_target();
-
         //client
         this->action_client = rclcpp_action::create_client<Target>(this, "target");
 
         //timer called once, stopped in send_goal()
         this->timer_ = this->create_wall_timer(
             std::chrono::milliseconds(500),
-            std::bind(&TargetInterface::send_goal, this));
-
+            std::bind(&TargetInterface::run_taget, this));
 
 
     };
+
+    void run_taget(){
+        //get input from user
+        if(!timer_->is_canceled()){
+            get_input();
+            make_target();
+            send_goal();
+        }
+    }
+
 
     private: 
     void send_goal(){
@@ -85,6 +90,7 @@ class TargetInterface  : public rclcpp::Node{
     {
         switch (result.code) {
         case rclcpp_action::ResultCode::SUCCEEDED:
+            timer_->reset(); //restart the timer
             break;
         case rclcpp_action::ResultCode::ABORTED:
             RCLCPP_ERROR(this->get_logger(), "Goal was aborted");
@@ -109,7 +115,7 @@ class TargetInterface  : public rclcpp::Node{
     void make_target(){
         geometry_msgs::msg::TransformStamped target_transform;
         target_transform.header.stamp = this->get_clock()->now();
-        target_transform.header.frame_id = "base_link"; //father link
+        target_transform.header.frame_id = "odom"; //father link
         target_transform.child_frame_id = "target"; //child link
 
         target_transform.transform.translation.x = x;
@@ -132,9 +138,6 @@ class TargetInterface  : public rclcpp::Node{
     //TODO: client for action
     rclcpp_action::Client<Target>::SharedPtr action_client;
     rclcpp::TimerBase::SharedPtr timer_;
-
-
-
 
 
 };

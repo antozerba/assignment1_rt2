@@ -9,10 +9,11 @@
 
 #include "assignment1_rt2/action/target.hpp"
 #include "tf2_ros/transform_listener.h"
+#include "tf2_ros/transform_broadcaster.hpp"
 #include "tf2_ros/buffer.h"
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "geometry_msgs/msg/twist.h"
-
+#include "nav_msgs/msg/odometry.hpp"
 //using for semplicity
 using Target = assignment1_rt2::action::Target;
 
@@ -41,6 +42,12 @@ class TargetController : public rclcpp::Node{
         //VelPub
         vel_pub = this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
 
+        //Odom sub
+        odom_sub = this->create_subscription<nav_msgs::msg::Odometry>("/odom", 10, std::bind(&TargetController::odom_callback, this, std::placeholders::_1));
+
+        //Odom tf broadcaster 
+        tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+
 
 
 
@@ -55,6 +62,28 @@ class TargetController : public rclcpp::Node{
     std::shared_ptr<tf2_ros::TransformListener> tf_listener{};
     std::unique_ptr<tf2_ros::Buffer> tf_buffer;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr vel_pub;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub;
+    std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+
+
+    //odom callbacj
+    void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg){
+        geometry_msgs::msg::TransformStamped odom_t;
+
+        odom_t.header.stamp = this->get_clock()->now();
+        odom_t.header.frame_id = "odom";
+        odom_t.child_frame_id = "base_footprint";
+
+        odom_t.transform.translation.x = msg->pose.pose.position.x;
+        odom_t.transform.translation.y = msg->pose.pose.position.y;
+        odom_t.transform.translation.z = msg->pose.pose.position.z;
+
+        odom_t.transform.rotation = msg->pose.pose.orientation;
+
+        tf_broadcaster_->sendTransform(odom_t);
+        
+
+    }
 
 
     //goal 
@@ -92,9 +121,13 @@ class TargetController : public rclcpp::Node{
         float distance = LONG_MAX;
         float angle = -1.0;
         while(rclcpp::ok() && distance > 0.1){
+
+            rclcpp::Rate rate(10);
             //getting trasf of robot-target
             try{
                 t  = tf_buffer->lookupTransform("base_link", "target", tf2::TimePointZero);
+                RCLCPP_WARN(this->get_logger(), "Transform found: X: %f, Y: %f, Z: %f",
+                 t.transform.translation.x, t.transform.translation.y, t.transform.translation.z);
             }catch (const tf2::TransformException & ex){
                 RCLCPP_ERROR(this->get_logger(), "Could not transform: %s", ex.what());
                 goal_handle->abort(result);
@@ -115,7 +148,11 @@ class TargetController : public rclcpp::Node{
             cmd_vel.angular.z = 1.0 * angle;
 
             vel_pub->publish(cmd_vel);
-
+            RCLCPP_WARN(this->get_logger(), "Distance: %f, Angle: %f", distance, angle);
+            RCLCPP_WARN(this->get_logger(), "Published cmd_vel: linear.x: %f, angular.z: %f", 
+                    cmd_vel.linear.x, cmd_vel.angular.z);
+            
+            rate.sleep();
         }
         if(rclcpp::ok())
         {
@@ -143,11 +180,11 @@ class TargetController : public rclcpp::Node{
 
 };
 }
-int main(int argc, char* argv[]){
-    rclcpp::init(argc, argv);
-    auto node = std::make_shared<target_controller::TargetController>();
-    rclcpp::spin(node);
-    rclcpp::shutdown();
-    return 0;
-}
+// int main(int argc, char* argv[]){
+//     rclcpp::init(argc, argv);
+//     auto node = std::make_shared<target_controller::TargetController>();
+//     rclcpp::spin(node);
+//     rclcpp::shutdown();
+//     return 0;
+// }
 RCLCPP_COMPONENTS_REGISTER_NODE(target_controller::TargetController)
