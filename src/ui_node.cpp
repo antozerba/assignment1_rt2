@@ -6,6 +6,10 @@
 #include "tf2_ros/static_transform_broadcaster.h"
 #include "assignment1_rt2/action/target.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "math.h"
+
+
+
 
 //using for semplicityi
 using Target = assignment1_rt2::action::Target;
@@ -29,11 +33,12 @@ class TargetInterface  : public rclcpp::Node{
             std::bind(&TargetInterface::run_taget, this));
 
 
+
     };
 
     void run_taget(){
         //get input from user
-        if(!timer_->is_canceled()){
+        if(!timer_->is_canceled()) {
             get_input();
             make_target();
             send_goal();
@@ -43,7 +48,8 @@ class TargetInterface  : public rclcpp::Node{
 
     private: 
     void send_goal(){
-        timer_->cancel(); //stop timer after first call
+
+        timer_->cancel(); //stop timer, will be restarted when a new goal is sent
 
         if(!this->action_client->wait_for_action_server(std::chrono::seconds(10))){
             RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
@@ -90,7 +96,8 @@ class TargetInterface  : public rclcpp::Node{
     {
         switch (result.code) {
         case rclcpp_action::ResultCode::SUCCEEDED:
-            timer_->reset(); //restart the timer
+            RCLCPP_INFO(this->get_logger(), "Goal succeeded");
+            timer_->reset();
             break;
         case rclcpp_action::ResultCode::ABORTED:
             RCLCPP_ERROR(this->get_logger(), "Goal was aborted");
@@ -123,7 +130,7 @@ class TargetInterface  : public rclcpp::Node{
         target_transform.transform.translation.z = 0.0;
 
         tf2::Quaternion q;
-        q.setRPY(0, 0, theta);
+        q.setRPY(0, 0, M_PI*theta/180); //convert to radians
         target_transform.transform.rotation.x = q.x();
         target_transform.transform.rotation.y = q.y();
         target_transform.transform.rotation.z = q.z();
@@ -138,6 +145,7 @@ class TargetInterface  : public rclcpp::Node{
     //TODO: client for action
     rclcpp_action::Client<Target>::SharedPtr action_client;
     rclcpp::TimerBase::SharedPtr timer_;
+    
 
 
 };

@@ -14,6 +14,10 @@
 #include "geometry_msgs/msg/transform_stamped.hpp"
 #include "geometry_msgs/msg/twist.h"
 #include "nav_msgs/msg/odometry.hpp"
+#include "tf2/utils.h"
+#include "math.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
+
 //using for semplicity
 using Target = assignment1_rt2::action::Target;
 
@@ -54,6 +58,8 @@ class TargetController : public rclcpp::Node{
 
 
 
+
+
     }
 
 
@@ -64,11 +70,11 @@ class TargetController : public rclcpp::Node{
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr vel_pub;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub;
     std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+    geometry_msgs::msg::TransformStamped odom_t;
 
 
-    //odom callbacj
+    //odom callback to publish tf odom-robot
     void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg){
-        geometry_msgs::msg::TransformStamped odom_t;
 
         odom_t.header.stamp = this->get_clock()->now();
         odom_t.header.frame_id = "odom";
@@ -81,8 +87,6 @@ class TargetController : public rclcpp::Node{
         odom_t.transform.rotation = msg->pose.pose.orientation;
 
         tf_broadcaster_->sendTransform(odom_t);
-        
-
     }
 
 
@@ -117,66 +121,122 @@ class TargetController : public rclcpp::Node{
 
         geometry_msgs::msg::TransformStamped t;
 
-        //implementation of action logic:
         float distance = LONG_MAX;
-        float angle = -1.0;
-        while(rclcpp::ok() && distance > 0.1){
+        float yaw_error = 360.0;
+        rclcpp::Rate rate(10);
 
-            rclcpp::Rate rate(10);
-            //getting trasf of robot-target
-            try{
-                t  = tf_buffer->lookupTransform("base_link", "target", tf2::TimePointZero);
-                RCLCPP_WARN(this->get_logger(), "Transform found: X: %f, Y: %f, Z: %f",
-                 t.transform.translation.x, t.transform.translation.y, t.transform.translation.z);
-            }catch (const tf2::TransformException & ex){
+        // ---- FASE 1: raggiungi la posizione (x, y) ----
+        while (rclcpp::ok() && distance > 0.1) {
+            try {
+                t = tf_buffer->lookupTransform("base_link", "target", tf2::TimePointZero);
+            } catch (const tf2::TransformException & ex) {
                 RCLCPP_ERROR(this->get_logger(), "Could not transform: %s", ex.what());
                 goal_handle->abort(result);
                 return;
             }
 
+            distance = sqrt(pow(t.transform.translation.x, 2) + pow(t.transform.translation.y, 2));
+            float heading_error = atan2(t.transform.translation.y, t.transform.translation.x);
 
-            //compute controller based on the distance
-            distance = static_cast<float>(sqrt(pow(t.transform.translation.x, 2) + pow(t.transform.translation.y, 2)));
-            angle = atan2(t.transform.translation.y, t.transform.translation.x); 
-
-            //send feedback
-            feedback->partial_pose = {static_cast<float>(t.transform.translation.x), static_cast<float>(t.transform.translation.y), angle};
-            goal_handle->publish_feedback(feedback);
-        
             geometry_msgs::msg::Twist cmd_vel;
-            cmd_vel.linear.x = 0.5 * distance;
-            cmd_vel.angular.z = 1.0 * angle;
-
+            cmd_vel.linear.x  = 0.5 * distance;
+            cmd_vel.angular.z = 1.0 * heading_error;
             vel_pub->publish(cmd_vel);
-            RCLCPP_WARN(this->get_logger(), "Distance: %f, Angle: %f", distance, angle);
-            RCLCPP_WARN(this->get_logger(), "Published cmd_vel: linear.x: %f, angular.z: %f", 
-                    cmd_vel.linear.x, cmd_vel.angular.z);
-            
+            // feedback
+            feedback->partial_pose = {
+                static_cast<float>(odom_t.transform.translation.x),
+                static_cast<float>(odom_t.transform.translation.y),
+                static_cast<float>(tf2::getYaw(odom_t.transform.rotation) * 180.0 / M_PI)
+            };
+            goal_handle->publish_feedback(feedback);
             rate.sleep();
         }
-        if(rclcpp::ok())
-        {
-            //stopping the robot
-            geometry_msgs::msg::Twist cmd_vel;
-            cmd_vel.linear.x = 0.0;
-            cmd_vel.angular.z = 0.0;
-            vel_pub->publish(cmd_vel);
 
-            //setting result
-            result->final_pose = {static_cast<float>(t.transform.translation.x), static_cast<float>(t.transform.translation.y), angle};
-            goal_handle->succeed(result);
+        // stop
+        vel_pub->publish(geometry_msgs::msg::Twist{});
+
+        // ---- FASE 2: ruota verso theta finale ----
+        // Il target TF ha già la rotazione finale (M_PI*theta/180)
+        // quindi basta leggere lo yaw residuo dal transform base_link->target
+        while (rclcpp::ok() && fabs(yaw_error) > 0.01) {  
+            try {
+                t = tf_buffer->lookupTransform("base_link", "target", tf2::TimePointZero);
+            } catch (const tf2::TransformException & ex) {
+                RCLCPP_ERROR(this->get_logger(), "Could not transform: %s", ex.what());
+                goal_handle->abort(result);
+                return;
+            }
+            yaw_error = tf2::getYaw(t.transform.rotation);  // rotazione residua
+
+            geometry_msgs::msg::Twist cmd_vel;
+            cmd_vel.linear.x  = 0.0;
+            cmd_vel.angular.z = 1.0 * yaw_error;
+            vel_pub->publish(cmd_vel);
+            rate.sleep();
+            feedback->partial_pose = {
+                static_cast<float>(odom_t.transform.translation.x),
+                static_cast<float>(odom_t.transform.translation.y),
+                static_cast<float>(tf2::getYaw(odom_t.transform.rotation) * 180.0 / M_PI)
+            };
+            goal_handle->publish_feedback(feedback);
         }
 
+        vel_pub->publish(geometry_msgs::msg::Twist{});
+        goal_handle->succeed(result);
+        RCLCPP_INFO(this->get_logger(), "Goal succeeded");
+
+        // //implementation of action logic:
+        // float distance = LONG_MAX;
+        // float angle = 360.0;
+        // rclcpp::Rate rate(10);
+        // while(rclcpp::ok() && (distance > 0.1 || angle > 0.1)){
+
+        //     //getting trasf of robot-target
+        //     try{
+        //         t  = tf_buffer->lookupTransform("base_link", "target", tf2::TimePointZero);
+        //     }catch (const tf2::TransformException & ex){
+        //         RCLCPP_ERROR(this->get_logger(), "Could not transform: %s", ex.what());
+        //         goal_handle->abort(result);
+        //         return;
+        //     }
 
 
+        //     //compute controller based on the distance
+        //     distance = static_cast<float>(sqrt(pow(t.transform.translation.x, 2) + pow(t.transform.translation.y, 2)));
+        //     angle = atan2(t.transform.translation.y, t.transform.translation.x); 
 
+            
 
+        //     //send feedback
+        //     feedback->partial_pose = {static_cast<float>(odom_t.transform.translation.x), static_cast<float>(odom_t.transform.translation.y), 
+        //         // static_cast<float>(atan2(odom_t.transform.translation.y, odom_t.transform.translation.x))};
+        //         static_cast<float>(tf2::getYaw(odom_t.transform.rotation)*180.0/M_PI)};
+        //     goal_handle->publish_feedback(feedback);
+        
+        //     geometry_msgs::msg::Twist cmd_vel;
+        //     cmd_vel.linear.x = 0.5 * distance;
+        //     cmd_vel.angular.z = 1.0 * angle;
 
+        //     vel_pub->publish(cmd_vel);
+        //     RCLCPP_WARN(this->get_logger(), "Distance: %f, Angle Error: %f", distance, angle);
+        //     RCLCPP_WARN(this->get_logger(), "Published cmd_vel: linear.x: %f, angular.z: %f", 
+        //             cmd_vel.linear.x, cmd_vel.angular.z);
+            
+        //     rate.sleep();
+        // }
+        // if(rclcpp::ok())
+        // {
+        //     //stopping the robot
+        //     geometry_msgs::msg::Twist cmd_vel;
+        //     cmd_vel.linear.x = 0.0;
+        //     cmd_vel.angular.z = 0.0;
+        //     vel_pub->publish(cmd_vel);
 
-
+        //     //setting result
+        //     result->final_pose = {static_cast<float>(t.transform.translation.x), static_cast<float>(t.transform.translation.y), angle};
+        //     goal_handle->succeed(result);
+        // }
     }
-
-
 
 };
 }
