@@ -1,45 +1,113 @@
 # Assignment1_rt2
 
-ROS2 package for controlling a robot toward a user-specified target, based on **Action Server/Client**, **TF2**, and **velocity publishing**.
+A ROS 2 package implementing an **action-based target navigation system** for a mobile robot. The robot receives a target pose from a user interface, navigates toward it using TF2 transforms, and reports back feedback and results through an action server/client architecture.
+
+---
+![](res/img.png)
+
+## Dependencies
+
+This package requires the following additional repositories to be cloned alongside it:
+
+| Repository | Branch | Description |
+|------------|--------|-------------|
+| [CarmineD8/bme_gazebo_sensors](https://github.com/CarmineD8/bme_gazebo_sensors) | `rt2` | Gazebo simulation environment and robot sensors |
+| [antozerba/custom_interface](https://github.com/antozerba/custom_interface) | `main` | Custom ROS 2 messages, services and actions |
 
 ---
 
-## Project Structure
+## Installation
+
+```bash
+cd ~/ros2_ws/src
+
+# Clone the main package
+git clone https://github.com/antozerba/assignment1_rt2.git
+
+# Clone the simulation environment (rt2 branch)
+git clone -b rt2 https://github.com/CarmineD8/bme_gazebo_sensors.git
+
+# Clone the custom interfaces
+git clone https://github.com/antozerba/custom_interface.git
+
+# Build all packages
+cd ~/ros2_ws
+colcon build
+
+# Source the workspace
+source install/setup.bash
+```
+
+---
+
+## Package Structure
 
 ```
 assignment1_rt2/
-├── action/
-│   └── Target.action          # Action interface definition
+├── launch/
+│   └── ass1_rt2.launch.py    # Main launch file
 ├── src/
-│   ├── ui_node.cpp            # User interface node (action client)
-│   └── controller.cpp         # Controller node (action server)
+│   ├── controller.cpp         # Action server + navigation logic (component)
+│   └── ui_node.cpp            # User interface + action client
 ├── CMakeLists.txt
 └── package.xml
 ```
 
 ---
 
+## Nodes
+
+### `target_interface` (ui_node.cpp)
+
+Interactive node that:
+1. Prompts the user to enter a target pose `(x, y, theta)` via stdin.
+2. Broadcasts the target as a **static TF transform** (`base_link` → `target`).
+3. Connects to the `target` action server and sends the goal.
+4. Logs feedback (partial pose) and the final result.
+
+| Resource | Type | Description |
+|----------|------|-------------|
+| `/tf_static` | `tf2_msgs/TFMessage` | Publishes the target frame |
+| `target` (action client) | `custom_interface/action/Target` | Sends the navigation goal |
+
+---
+
+### `controller` (controller.cpp — component)
+
+Action server node that:
+1. Accepts navigation goals from `target_interface`.
+2. Uses TF2 to track the robot's current pose relative to the target.
+3. Publishes velocity commands to drive the robot.
+4. Sends pose feedback during execution and the final result on completion.
+
+| Resource | Type | Description |
+|----------|------|-------------|
+| `/cmd_vel` | `geometry_msgs/msg/Twist` | Publishes velocity commands |
+| `target` (action server) | `custom_interface/action/Target` | Receives and executes navigation goals |
+
+---
+
+## Run
+
+Everything can be launched with a single command:
+
+```bash
+ros2 launch assignment1_rt2 ass1_rt2.launch.py
+```
+
+Once running, the UI node will prompt:
+
+```
+Enter target position (x y theta): 2.0 1.5 30
+```
+
+---
+
+
+
 ## Components
 
-### 1. Action Interface — `action/Target.action`
-
-Defines the communication protocol between client and server:
-
-```
-float32[] target_pose      # Goal:     target position [x, y, theta]
----
-float32[] final_pose       # Result:   final pose reached by the robot
----
-float32[] partial_pose     # Feedback: current pose during execution
-```
-
-- **Goal**: the client sends the desired position as an array `[x, y, theta]`
-- **Result**: once finished, the server returns the robot's final pose
-- **Feedback**: during execution, the server periodically sends the current pose
-
----
-
-### 2. UI Node — `src/ui_node.cpp` → executable `target_interface`
+### 1. UI Node — `src/ui_node.cpp` → executable `target_interface`
 
 **Action client** node that handles user interaction and goal sending.
 
@@ -77,7 +145,7 @@ send_goal()          ← sends goal to the action server
 
 ---
 
-### 3. Controller Node — `src/controller.cpp` → component `controller_component`
+### 2. Controller Node — `src/controller.cpp` → component `controller_component`
 
 **Action server** node loaded as a ROS2 component. Handles execution of the movement toward the target.
 
@@ -85,7 +153,7 @@ send_goal()          ← sends goal to the action server
 
 | Element | Type | Purpose |
 |---|---|---|
-| `action_server` | `rclcpp_action::Server<Target>` | Receives and manages goals |
+| `action_server` | `rclcpp_action::Server<Target>` | custom action server |
 | `tf_buffer` + `tf_listener` | TF2 | Reads the robot's current transform |
 | `vel_pub` | `Publisher<Twist>` on `/cmd_vel` | Publishes velocity commands |
 
@@ -96,62 +164,20 @@ send_goal()          ← sends goal to the action server
 | `handle_goal()` | Always accepts the goal and logs the received coordinates |
 | `handle_cancel()` | Always accepts cancellation requests |
 | `handle_accepted()` | Spawns a detached thread that runs `execute()` |
-| `execute()` | *(to be implemented)* Navigation logic toward the target |
+| `execute()` | Double phase controller over distance and yaw errror
 
-> **Note:** The `execute()` method contains the main control logic, which is not yet implemented. This is where the navigation algorithm should go (e.g. proportional control on position/orientation by reading TF2 and publishing to `/cmd_vel`).
 
----
+## ROS 2 Dependencies
 
-## Dependencies
-
-Declared in `package.xml`:
-
-| Package | Usage |
-|---|---|
-| `rclcpp` | Core ROS2 C++ API |
-| `rclcpp_action` | Action server/client framework |
-| `rclcpp_components` | Loading the controller as a component |
-| `tf2_ros` | Broadcasting and listening to TF transforms |
-| `geometry_msgs` | `Twist` (velocity) and `TransformStamped` messages |
-| `rosidl_default_generators` | Generation of the `.action` interface |
+- `rclcpp`
+- `rclcpp_action`
+- `rclcpp_components`
+- `tf2` / `tf2_ros`
+- `geometry_msgs`
+- `rosidl_default_generators` / `rosidl_default_runtime`
 
 ---
 
-## Build
+## Author
 
-```bash
-cd ~/ros2_ws
-colcon build --packages-select assignment1_rt2
-source install/setup.bash
-```
-
----
-
-## Running
-
-Launch the controller as a component inside a container:
-
-```bash
-ros2 run rclcpp_components component_container
-ros2 component load /ComponentManager assignment1_rt2 target_controller::TargetController
-```
-
-Launch the UI node (in a second terminal):
-
-```bash
-ros2 run assignment1_rt2 target_interface
-```
-
-Enter the coordinates when prompted:
-
-```
-Enter target position (x y theta): 2.0 1.5 1.57
-```
-
----
-
-## Architectural Notes
-
-- The controller is registered as a **component** (`RCLCPP_COMPONENTS_REGISTER_NODE`) to be loaded dynamically, rather than as a plain executable. This makes it compatible with ROS2 lifecycle management.
-- The `target` TF frame is published as **static** relative to `base_link`, so it remains fixed for the entire duration of the goal.
-- Goal execution runs in a **detached thread** (`std::thread::detach`) to avoid blocking the main executor during navigation.
+**Anto** — [antozerba28@gmail.com](mailto:antozerba28@gmail.com)
