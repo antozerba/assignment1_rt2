@@ -7,6 +7,7 @@
 #include "assignment1_rt2/action/target.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "math.h"
+#include "std_msgs/msg/float32_multi_array.hpp"
 
 
 
@@ -27,16 +28,33 @@ class TargetInterface  : public rclcpp::Node{
         //client
         this->action_client = rclcpp_action::create_client<Target>(this, "target");
 
-        //timer called once, stopped in send_goal()
+        //publisher
+        this->target_publisher = this->create_publisher<std_msgs::msg::Float32MultiArray>("target_pose", 10);
+        this->feedback_publisher = this->create_publisher<std_msgs::msg::Float32MultiArray>("feedback_pose", 10);
+
+        // timer called once, stopped in send_goal()
         this->timer_ = this->create_wall_timer(
             std::chrono::milliseconds(500),
-            std::bind(&TargetInterface::run_taget, this));
+            std::bind(&TargetInterface::run_target, this));
 
+    
+
+        //timer target pub
+        this->target_timer_ = this->create_wall_timer(
+            std::chrono::milliseconds(500),
+            std::bind(&TargetInterface::target_callback, this));
+        
 
 
     };
 
-    void run_taget(){
+
+
+
+
+    private: 
+
+    void run_target(){
         //get input from user
         if(!timer_->is_canceled()) {
             get_input();
@@ -45,11 +63,21 @@ class TargetInterface  : public rclcpp::Node{
         }
     }
 
+    void target_callback(){
+        //publish target pose
+        std_msgs::msg::Float32MultiArray target_msg;
+        target_msg.data.push_back(x);
+        target_msg.data.push_back(y);
+        target_msg.data.push_back(theta);
+        target_publisher->publish(target_msg);    
 
-    private: 
+    }
+        
+
     void send_goal(){
 
-        timer_->cancel(); //stop timer, will be restarted when a new goal is sent
+        timer_->cancel();
+
 
         if(!this->action_client->wait_for_action_server(std::chrono::seconds(10))){
             RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
@@ -90,6 +118,12 @@ class TargetInterface  : public rclcpp::Node{
         //logging partial pose value
         RCLCPP_INFO(this->get_logger(), "Partial Pose X: %f, Y: %f, Theta: %f", 
                 feedback->partial_pose[0], feedback->partial_pose[1], feedback->partial_pose[2]);
+        //publish feedback
+        std_msgs::msg::Float32MultiArray feedback_msg;
+        feedback_msg.data.push_back(feedback->partial_pose[0]);
+        feedback_msg.data.push_back(feedback->partial_pose[1]);
+        feedback_msg.data.push_back(feedback->partial_pose[2]);
+        feedback_publisher->publish(feedback_msg);  
     }
 
     void result_callback(const TargetHandle::WrappedResult & result)
@@ -109,9 +143,9 @@ class TargetInterface  : public rclcpp::Node{
             RCLCPP_ERROR(this->get_logger(), "Unknown result code");
             return;
         }
-        //logging final pose value
-        RCLCPP_INFO(this->get_logger(), "Final Pose X: %f, Y: %f, Theta: %f", 
-                result.result->final_pose[0], result.result->final_pose[1], result.result->final_pose[2]);
+        // //logging final pose value SEGMENTATION FAULT PROBLEM!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        // RCLCPP_INFO(this->get_logger(), "Final Pose X: %f, Y: %f, Theta: %f", 
+        //         result.result->final_pose[0], result.result->final_pose[1], result.result->final_pose[2]);
     }
 
     void get_input(){
@@ -142,6 +176,11 @@ class TargetInterface  : public rclcpp::Node{
     float x,y,theta;
     std::shared_ptr<tf2_ros::StaticTransformBroadcaster> target_broadcaster;
 
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr target_publisher; 
+    rclcpp::TimerBase::SharedPtr target_timer_;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr feedback_publisher; 
+    
+
     //TODO: client for action
     rclcpp_action::Client<Target>::SharedPtr action_client;
     rclcpp::TimerBase::SharedPtr timer_;
@@ -156,3 +195,4 @@ int main(int argc, char* argv[]){
     rclcpp::shutdown();
     return 0;
 }
+
