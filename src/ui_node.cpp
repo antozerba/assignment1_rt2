@@ -4,7 +4,7 @@
 #include "rclcpp/rclcpp.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2_ros/static_transform_broadcaster.h"
-#include "assignment1_rt2/action/target.hpp"
+#include "custom_interface/action/target.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "math.h"
 #include "std_msgs/msg/float32_multi_array.hpp"
@@ -13,7 +13,7 @@
 
 
 //using for semplicityi
-using Target = assignment1_rt2::action::Target;
+using Target = custom_interface::action::Target;
 using TargetHandle = rclcpp_action::ClientGoalHandle<Target>;
 using namespace std::placeholders;
 
@@ -37,20 +37,12 @@ class TargetInterface  : public rclcpp::Node{
             std::chrono::milliseconds(500),
             std::bind(&TargetInterface::run_target, this));
 
-    
-
         //timer target pub
         this->target_timer_ = this->create_wall_timer(
             std::chrono::milliseconds(500),
             std::bind(&TargetInterface::target_callback, this));
-        
-
 
     };
-
-
-
-
 
     private: 
 
@@ -78,7 +70,6 @@ class TargetInterface  : public rclcpp::Node{
 
         timer_->cancel();
 
-
         if(!this->action_client->wait_for_action_server(std::chrono::seconds(10))){
             RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
             rclcpp::shutdown(); //close node if no action server available
@@ -98,8 +89,6 @@ class TargetInterface  : public rclcpp::Node{
         send_goal_options.result_callback = 
             std::bind(&TargetInterface::result_callback, this, _1);
         this->action_client->async_send_goal(goal, send_goal_options);
-
-        
 
     }
 
@@ -184,8 +173,6 @@ class TargetInterface  : public rclcpp::Node{
     //TODO: client for action
     rclcpp_action::Client<Target>::SharedPtr action_client;
     rclcpp::TimerBase::SharedPtr timer_;
-    
-
 
 };
 

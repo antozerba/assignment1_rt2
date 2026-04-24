@@ -7,7 +7,7 @@
 #include <climits>
 
 
-#include "assignment1_rt2/action/target.hpp"
+#include "custom_interface/action/target.hpp"
 #include "tf2_ros/transform_listener.h"
 #include "tf2_ros/transform_broadcaster.hpp"
 #include "tf2_ros/buffer.h"
@@ -19,7 +19,7 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 //using for semplicity
-using Target = assignment1_rt2::action::Target;
+using Target = custom_interface::action::Target;
 
 
 namespace target_controller{
