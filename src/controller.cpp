@@ -76,7 +76,9 @@ class TargetController : public rclcpp::Node{
     //odom callback to publish tf odom-robot
     void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg){
 
-        odom_t.header.stamp = this->get_clock()->now();
+        // odom_t.header.stamp = this->get_clock()->now();
+
+        odom_t.header.stamp = msg->header.stamp;
         odom_t.header.frame_id = "odom";
         odom_t.child_frame_id = "base_footprint";
 

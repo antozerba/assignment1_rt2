@@ -138,7 +138,7 @@ class TargetInterface  : public rclcpp::Node{
     }
 
     void get_input(){
-        std::cout << "Enter target position (x y theta): ";
+        std::cout << "Enter Target position (x y theta): ";
         std::cin >> x >> y >> theta;
     }
 
