@@ -48,10 +48,10 @@ class TargetInterface  : public rclcpp::Node{
 
     void run_target(){
         //get input from user
-        if(!timer_->is_canceled()) {
+        if(!getting_input) {
+            getting_input= true;  
             get_input();
-            make_target();
-            send_goal();
+
         }
     }
 
@@ -68,7 +68,7 @@ class TargetInterface  : public rclcpp::Node{
 
     void send_goal(){
 
-        timer_->cancel();
+        // timer_->cancel();
 
         if(!this->action_client->wait_for_action_server(std::chrono::seconds(10))){
             RCLCPP_ERROR(this->get_logger(), "Action server not available after waiting");
@@ -97,7 +97,9 @@ class TargetInterface  : public rclcpp::Node{
         if (!goal_handle) {
         RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
         } else {
-        RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
+            current_goal_handle = goal_handle; 
+            RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
+
         }
     }
 
@@ -107,7 +109,6 @@ class TargetInterface  : public rclcpp::Node{
         //logging partial pose value
         RCLCPP_INFO(this->get_logger(), "Partial Pose X: %f, Y: %f, Theta: %f", 
                 feedback->partial_pose[0], feedback->partial_pose[1], feedback->partial_pose[2]);
-        //publish feedback
         std_msgs::msg::Float32MultiArray feedback_msg;
         feedback_msg.data.push_back(feedback->partial_pose[0]);
         feedback_msg.data.push_back(feedback->partial_pose[1]);
@@ -120,7 +121,11 @@ class TargetInterface  : public rclcpp::Node{
         switch (result.code) {
         case rclcpp_action::ResultCode::SUCCEEDED:
             RCLCPP_INFO(this->get_logger(), "Goal succeeded");
-            timer_->reset();
+            std::cout << "\nEnter Target position (x y theta) or 'c' to cancel: " << std::flush;
+
+
+            current_goal_handle = nullptr;
+            // timer_->reset();
             break;
         case rclcpp_action::ResultCode::ABORTED:
             RCLCPP_ERROR(this->get_logger(), "Goal was aborted");
@@ -138,9 +143,27 @@ class TargetInterface  : public rclcpp::Node{
     }
 
     void get_input(){
-        std::cout << "Enter Target position (x y theta): ";
-        std::cin >> x >> y >> theta;
+        std::thread([this](){
+            std::cout << "Enter Target position (x y theta) or 'c' to cancel: ";
+            std::string input;
+            std::cin >> input;
+
+            //gestione cancel
+            if(input == "c"){
+                if(current_goal_handle)
+                    action_client->async_cancel_goal(current_goal_handle);
+                getting_input = false;
+                RCLCPP_ERROR(this->get_logger(), "CANCELLING GOAL");
+                return;
+            }
+            x = std::stof(input);
+            std::cin >> y >> theta;
+            make_target();
+            send_goal();
+            getting_input  = false;
+        }).detach();
     }
+       
 
     void make_target(){
         geometry_msgs::msg::TransformStamped target_transform;
@@ -173,6 +196,11 @@ class TargetInterface  : public rclcpp::Node{
     //TODO: client for action
     rclcpp_action::Client<Target>::SharedPtr action_client;
     rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp_action::ClientGoalHandle<Target>::SharedPtr current_goal_handle{};
+
+    bool target_sent = false;
+    bool getting_input = false;
+
 
 };
 

@@ -104,8 +104,9 @@ class TargetController : public rclcpp::Node{
     //cancel
     rclcpp_action::CancelResponse handle_cancel(
         const std::shared_ptr<rclcpp_action::ServerGoalHandle<Target>> goal_handle){
-            RCLCPP_INFO(this->get_logger(), "Received request to cancel goal");
+            RCLCPP_ERROR(this->get_logger(), "Received request to cancel goal");
             (void)goal_handle;
+
             return rclcpp_action::CancelResponse::ACCEPT;
         }
     //accepted
@@ -130,6 +131,16 @@ class TargetController : public rclcpp::Node{
 
         // ---- FASE 1: raggiungi la posizione (x, y) ----
         while (rclcpp::ok() && distance > 0.1) {
+            if(goal_handle->is_canceling()){
+                // pulisci result e manda canceled
+                result->final_pose = {};
+                goal_handle->canceled(result);
+                RCLCPP_INFO(this->get_logger(), "Goal canceled");
+                geometry_msgs::msg::Twist cmd_vel;
+                //stop robot
+                vel_pub->publish(geometry_msgs::msg::Twist{});
+                return;
+            }
             try {
                 t = tf_buffer->lookupTransform("base_link", "target", tf2::TimePointZero);
             } catch (const tf2::TransformException & ex) {
@@ -162,6 +173,15 @@ class TargetController : public rclcpp::Node{
         // Il target TF ha già la rotazione finale (M_PI*theta/180)
         // quindi basta leggere lo yaw residuo dal transform base_link->target
         while (rclcpp::ok() && fabs(yaw_error) > 0.01) {  
+              if(goal_handle->is_canceling()){
+                // pulisci result e manda canceled
+                result->final_pose = {};
+                goal_handle->canceled(result);
+                RCLCPP_INFO(this->get_logger(), "Goal canceled");
+                //stop robot
+                vel_pub->publish(geometry_msgs::msg::Twist{});
+                return;
+            }
             try {
                 t = tf_buffer->lookupTransform("base_link", "target", tf2::TimePointZero);
             } catch (const tf2::TransformException & ex) {
